@@ -1,0 +1,114 @@
+_schema-version: 3.3.0
+ID: pac
+description: A simple CAP project.
+version: 1.0.0-SNAPSHOT
+modules:
+- name: pac-srv
+  type: java
+  path: srv
+  properties:
+    JBP_CONFIG_COMPONENTS: 'jres: [''com.sap.xs.java.buildpack.jre.SAPMachineJRE'']'
+    JBP_CONFIG_SAP_MACHINE_JRE: '{ version: 21.+ }'
+    SPRING_PROFILES_ACTIVE: cloud,sandbox
+  provides:
+  - name: srv-api
+    properties:
+      srv-url: ${default-url}
+  parameters:
+    buildpack: sap_java_buildpack_jakarta
+    readiness-health-check-http-endpoint: /actuator/health/readiness
+    readiness-health-check-type: http
+  build-parameters:
+    build-result: target/*-exec.jar
+    builder: custom
+    commands:
+    - mvn clean package -DskipTests=true --batch-mode
+- name: pac-app-content
+  type: com.sap.application.content
+  path: .
+  requires:
+  - name: pac-repo-host
+    parameters:
+      content-target: true
+  build-parameters:
+    build-result: resources
+    requires:
+    - artifacts:
+      - frontend.zip
+      name: frontend
+      target-path: resources/
+- name: frontend
+  type: html5
+  path: frontend
+  build-parameters:
+    build-result: dist
+    builder: custom
+    commands:
+    - npm install
+    - npm run build:cf
+    supported-platforms: []
+- name: pac-destination-content
+  type: com.sap.application.content
+  requires:
+  - name: pac-destination-service
+    parameters:
+      content-target: true
+  - name: pac-repo-host
+    parameters:
+      service-key:
+        name: pac-repo-host-key
+  - name: uaa_pac
+    parameters:
+      service-key:
+        name: uaa_pac-key
+  parameters:
+    content:
+      instance:
+        destinations:
+        - Name: pacrouter_pac_repo_host
+          ServiceInstanceName: pac-html5-service
+          ServiceKeyName: pac-repo-host-key
+          sap.cloud.service: pacrouter
+        - Authentication: OAuth2UserTokenExchange
+          Name: pacrouter_uaa_pac
+          ServiceInstanceName: pac-xsuaa-service
+          ServiceKeyName: uaa_pac-key
+          sap.cloud.service: pacrouter
+        existing_destinations_policy: ignore
+  build-parameters:
+    no-source: true
+- name: pac_db
+  type: hdb
+  path: pac_db
+  requires:
+  - name: hdi_pac_db
+resources:
+- name: pac-repo-host
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: html5-apps-repo
+    service-name: pac-html5-service
+    service-plan: app-host
+- name: pac-destination-service
+  type: org.cloudfoundry.managed-service
+  parameters:
+    config:
+      HTML5Runtime_enabled: true
+      version: 1.0.0
+    service: destination
+    service-name: pac-destination-service
+    service-plan: lite
+- name: uaa_pac
+  type: org.cloudfoundry.managed-service
+  parameters:
+    path: ./xs-security.json
+    service: xsuaa
+    service-name: pac-xsuaa-service
+    service-plan: application
+- name: hdi_pac_db
+  type: com.sap.xs.hdi-container
+  properties:
+    hdi-container-name: ${service-name}
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
